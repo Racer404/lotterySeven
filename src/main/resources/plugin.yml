@@ -1,0 +1,12 @@
+name: LotterySeven
+version: 0.1.0
+main: fund.racer.lotterySeven.Main
+description: An example plugin
+author: racer
+website: https://papermc.io
+api-version: '26.2'
+
+commands:
+  lottery:
+    description: LotterySeven commands
+    usage: /lottery
