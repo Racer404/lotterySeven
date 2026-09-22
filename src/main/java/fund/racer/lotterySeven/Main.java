@@ -65,16 +65,4 @@ public final class Main extends JavaPlugin implements Listener {
         }
     }
 
-    @EventHandler
-    public void onPlayerJoin(PlayerJoinEvent event) {
-        String message = messages.get(
-                "join",
-                "player",
-                event.getPlayer().getName()
-        );
-
-        event.getPlayer().sendMessage(
-                Component.text(message)
-        );
-    }
 }

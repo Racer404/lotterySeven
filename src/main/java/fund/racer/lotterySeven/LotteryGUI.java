@@ -3,12 +3,10 @@ package fund.racer.lotterySeven;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
-import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
 import xyz.xenondevs.invui.gui.Gui;
 import xyz.xenondevs.invui.inventory.VirtualInventory;
 import xyz.xenondevs.invui.inventory.event.ItemPreUpdateEvent;
@@ -78,6 +76,16 @@ public final class LotteryGUI {
         window.open();
     }
 
+    /**
+     * Opens the betting page.
+     *
+     * The lottery numbers are now entered directly into the
+     * AnvilWindow rename text.
+     *
+     * Paper and diamonds are only required materials:
+     * - 1 paper per ticket
+     * - 2 diamonds per ticket
+     */
     public void displayBetMakingPage(Player player) {
         Item empty = createEmptyItem();
         Item invalidBet = createInvalidBetItem();
@@ -87,24 +95,6 @@ public final class LotteryGUI {
                 .build();
 
         VirtualInventory betPlace = new VirtualInventory(2);
-
-        betPlace.addPreUpdateHandler(event -> {
-            if (event.isAdd()) {
-                handleBetAdded(
-                        player,
-                        gui,
-                        betPlace,
-                        invalidBet,
-                        event
-                );
-                return;
-            }
-
-            if (event.isRemove()) {
-                gui.setItem('#', empty);
-            }
-        });
-
         gui.setInventory('i', betPlace);
 
         AnvilWindow window = AnvilWindow.builder()
@@ -114,32 +104,101 @@ public final class LotteryGUI {
                 .addCloseHandler(close -> returnBetItems(player, betPlace))
                 .build();
 
+        /*
+         * The rename text is the actual lottery number input.
+         *
+         * Example:
+         * 1 5 12 20 28 33 7
+         */
+        window.addRenameHandler(text -> {
+            updateBetButton(
+                    player,
+                    gui,
+                    betPlace,
+                    window,
+                    text
+            );
+        });
+
+        /*
+         * Paper/diamond changes can also affect whether the
+         * purchase button should be available.
+         */
+        betPlace.addPreUpdateHandler(event -> {
+            if (event.isAdd() || event.isRemove()) {
+                updateBetButton(
+                        player,
+                        gui,
+                        betPlace,
+                        window,
+                        window.getRenameText()
+                );
+            }
+
+            if (event.isRemove()) {
+                /*
+                 * If the materials become invalid, updateBetButton()
+                 * will replace the button with the invalid item.
+                 *
+                 * This also keeps the old empty-slot behavior.
+                 */
+                if (betPlace.getItem(0) == null
+                        && betPlace.getItem(1) == null) {
+                    gui.setItem('#', empty);
+                }
+            }
+        });
+
+        /*
+         * Start with an invalid/empty state.
+         */
+        gui.setItem('#', invalidBet);
+
         window.open();
     }
 
-    private void handleBetAdded(
+    /**
+     * Updates the purchase button based on:
+     *
+     * 1. Anvil rename text
+     * 2. Paper
+     * 3. Diamonds
+     */
+    private void updateBetButton(
             Player player,
             Gui gui,
             VirtualInventory betPlace,
-            Item invalidBet,
-            ItemPreUpdateEvent event
+            AnvilWindow window,
+            String renameText
     ) {
-        int[] placedNumbers = parseBetPlace(event);
+        int[] numbers = parseBetText(renameText);
 
-        if (placedNumbers == null) {
-            gui.setItem('#', invalidBet);
+        ItemStack paper = betPlace.getItem(0);
+        ItemStack diamonds = betPlace.getItem(1);
+
+        if (numbers == null
+                || !isValidPaper(paper)
+                || !isValidPayment(diamonds)) {
+
+            gui.setItem('#', createInvalidBetItem());
             return;
         }
 
         gui.setItem(
                 '#',
-                createSettleBetItem(player, betPlace, placedNumbers)
+                createSettleBetItem(
+                        player,
+                        betPlace,
+                        window
+                )
         );
     }
 
     private Item createEmptyItem() {
         return Item.builder()
-                .setItemProvider(new ItemBuilder(Material.AIR))
+                .setItemProvider(
+                        new ItemBuilder(Material.AIR)
+                )
                 .build();
     }
 
@@ -152,10 +211,17 @@ public final class LotteryGUI {
                 .build();
     }
 
+    /**
+     * Creates the purchase button.
+     *
+     * The actual rename text is read again when the player clicks
+     * the button instead of relying on the value used to create
+     * the button.
+     */
     private Item createSettleBetItem(
             Player player,
             VirtualInventory betPlace,
-            int[] placedNumbers
+            AnvilWindow window
     ) {
         String drawTime = manager.nextDrawTime_String();
 
@@ -174,7 +240,7 @@ public final class LotteryGUI {
                         click -> settleBet(
                                 player,
                                 betPlace,
-                                placedNumbers
+                                window
                         )
                 )
                 .build();
@@ -183,21 +249,39 @@ public final class LotteryGUI {
     private void settleBet(
             Player player,
             VirtualInventory betPlace,
-            int[] placedNumbers
+            AnvilWindow window
     ) {
-        player.playSound(
-                player,
-                Sound.ENTITY_SHEEP_SHEAR,
-                1,
-                1
+        /*
+         * Read the rename text again when purchasing.
+         *
+         * This guarantees that the actual current anvil text is
+         * used, even if the text changed after the button was created.
+         */
+        int[] placedNumbers = parseBetText(
+                window.getRenameText()
         );
+
+        if (placedNumbers == null) {
+            return;
+        }
 
         ItemStack paper = betPlace.getItem(0);
         ItemStack diamonds = betPlace.getItem(1);
 
-        if (paper == null || diamonds == null) {
+        /*
+         * Paper is now only a material requirement.
+         */
+        if (!isValidPaper(paper)
+                || !isValidPayment(diamonds)) {
             return;
         }
+
+        player.getWorld().playSound(
+                player.getLocation(),
+                Sound.ENTITY_SHEEP_SHEAR,
+                1.0f,
+                1.0f
+        );
 
         int betCount = Math.min(
                 paper.getAmount(),
@@ -208,15 +292,22 @@ public final class LotteryGUI {
             return;
         }
 
-        // All tickets are added and the database is written once.
+        /*
+         * All tickets are added and the database is written once.
+         */
         manager.playerSettleBets(
                 player,
                 placedNumbers,
                 betCount
         );
 
-        paper.setAmount(paper.getAmount() - betCount);
-        diamonds.setAmount(diamonds.getAmount() - betCount * 2);
+        paper.setAmount(
+                paper.getAmount() - betCount
+        );
+
+        diamonds.setAmount(
+                diamonds.getAmount() - betCount * 2
+        );
 
         betPlace.setItem(
                 PlayerUpdateReason.SUPPRESSED,
@@ -245,56 +336,52 @@ public final class LotteryGUI {
             ItemStack item = betPlace.getItem(slot);
 
             if (item != null && !item.getType().isAir()) {
-                InventoryUtils.addToInventoryOrDrop(player, item);
+                InventoryUtils.addToInventoryOrDrop(
+                        player,
+                        item
+                );
             }
         }
     }
 
-    private int[] parseBetPlace(ItemPreUpdateEvent event) {
-        ItemStack paper = getResultingItem(event, 0);
-        ItemStack diamonds = getResultingItem(event, 1);
-
-        if (!isValidPaper(paper) || !isValidPayment(diamonds)) {
-            return null;
-        }
-
-        return parseBetNumbers(paper);
-    }
-
-    private ItemStack getResultingItem(
-            ItemPreUpdateEvent event,
-            int slot
-    ) {
-        if (event.getSlot() == slot) {
-            return event.getNewItem();
-        }
-
-        return event.getInventory().getItem(slot);
-    }
-
+    /**
+     * Paper is now validated only by its material.
+     *
+     * No custom name is required.
+     */
     private boolean isValidPaper(ItemStack paper) {
-        if (paper == null || paper.getType() != Material.PAPER) {
-            return false;
-        }
-
-        ItemMeta meta = paper.getItemMeta();
-        return meta != null && meta.hasDisplayName();
+        return paper != null
+                && paper.getType() == Material.PAPER;
     }
 
+    /**
+     * Requires at least two diamonds for one ticket.
+     */
     private boolean isValidPayment(ItemStack diamonds) {
         return diamonds != null
                 && diamonds.getType() == Material.DIAMOND
                 && diamonds.getAmount() >= 2;
     }
 
-    private int[] parseBetNumbers(ItemStack paper) {
-        ItemMeta meta = paper.getItemMeta();
+    /**
+     * Parses the AnvilWindow rename text.
+     *
+     * Expected:
+     *
+     * 1 5 12 20 28 33 7
+     *
+     * First 6 numbers:
+     * 1-33, unique
+     *
+     * Last number:
+     * 1-16
+     */
+    private int[] parseBetText(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
 
-        String customText = PlainTextComponentSerializer.plainText()
-                .serialize(meta.displayName())
-                .trim();
-
-        String[] parts = customText.split("\\s+");
+        String[] parts = text.trim().split("\\s+");
 
         if (parts.length != BET_SIZE) {
             return null;
@@ -314,14 +401,17 @@ public final class LotteryGUI {
             return null;
         }
 
-        return isValidBlueNumber(numbers[RED_NUMBER_COUNT])
+        return isValidBlueNumber(
+                numbers[RED_NUMBER_COUNT]
+        )
                 ? numbers
                 : null;
     }
 
     private boolean isValidRedNumbers(int[] numbers) {
         for (int i = 0; i < RED_NUMBER_COUNT; i++) {
-            if (numbers[i] < 1 || numbers[i] > RED_NUMBER_MAX) {
+            if (numbers[i] < 1
+                    || numbers[i] > RED_NUMBER_MAX) {
                 return false;
             }
 
@@ -336,7 +426,8 @@ public final class LotteryGUI {
     }
 
     private boolean isValidBlueNumber(int number) {
-        return number >= 1 && number <= BLUE_NUMBER_MAX;
+        return number >= 1
+                && number <= BLUE_NUMBER_MAX;
     }
 
     public void build_your_bet(
@@ -344,7 +435,11 @@ public final class LotteryGUI {
             Player player,
             Gui gui
     ) {
-        int[] bet = manager.get_last_bet(timeKey, player);
+        int[] bet = manager.get_last_bet(
+                timeKey,
+                player
+        );
+
         List<int[]> draw = manager.getDraw(timeKey);
 
         if (bet == null || draw.isEmpty()) {
@@ -353,12 +448,23 @@ public final class LotteryGUI {
         }
 
         int[] drawNumbers = draw.getFirst();
+
         boolean[] duplicates =
-                manager.findDuplicates(drawNumbers, bet);
-        int prize = manager.calculatePrize(duplicates);
+                manager.findDuplicates(
+                        drawNumbers,
+                        bet
+                );
+
+        int prize = manager.calculatePrize(
+                duplicates
+        );
 
         givePrize(player, prize);
-        manager.clear_last_bet(timeKey, player);
+
+        manager.clear_last_bet(
+                timeKey,
+                player
+        );
 
         int newSize = manager
                 .getPlayerBets(timeKey, player)
@@ -369,9 +475,16 @@ public final class LotteryGUI {
             return;
         }
 
-        int[] nextBet = manager.get_last_bet(timeKey, player);
+        int[] nextBet = manager.get_last_bet(
+                timeKey,
+                player
+        );
+
         boolean[] nextDuplicates =
-                manager.findDuplicates(drawNumbers, nextBet);
+                manager.findDuplicates(
+                        drawNumbers,
+                        nextBet
+                );
 
         gui.setItem(
                 1,
@@ -386,45 +499,58 @@ public final class LotteryGUI {
         );
     }
 
-    private void givePrize(Player player, int prize) {
+    private void givePrize(
+            Player player,
+            int prize
+    ) {
         if (prize > 0) {
             InventoryUtils.addToInventoryOrDrop(
                     player,
-                    new ItemStack(Material.DIAMOND, prize)
+                    new ItemStack(
+                            Material.DIAMOND,
+                            prize
+                    )
             );
 
-            player.playSound(
-                    player,
+            player.getWorld().playSound(
+                    player.getLocation(),
                     Sound.ENTITY_FIREWORK_ROCKET_LARGE_BLAST,
-                    1,
-                    1
+                    1.0f,
+                    1.0f
             );
+
             return;
         }
 
         if (prize == 0) {
             InventoryUtils.addToInventoryOrDrop(
                     player,
-                    new ItemStack(Material.SPIDER_EYE, 1)
+                    new ItemStack(
+                            Material.SPIDER_EYE,
+                            1
+                    )
             );
 
-            player.playSound(
-                    player,
+            player.getWorld().playSound(
+                    player.getLocation(),
                     Sound.ENTITY_VILLAGER_NO,
-                    1,
-                    1
+                    1.0f,
+                    1.0f
             );
+
             return;
         }
 
-        player.playSound(
-                player,
+        player.getWorld().playSound(
+                player.getLocation(),
                 Sound.ENTITY_ENDER_DRAGON_DEATH,
-                1,
-                1
+                1.0f,
+                1.0f
         );
 
-        player.sendMessage(messages.get("first-prize"));
+        player.sendMessage(
+                messages.get("first-prize")
+        );
     }
 
     private Item createYourBetItem(
@@ -482,41 +608,61 @@ public final class LotteryGUI {
                 .setStructure(3, 1, "# # i")
                 .build();
 
-        VirtualInventory prizePlace = new VirtualInventory(1);
+        VirtualInventory prizePlace =
+                new VirtualInventory(1);
+
         gui.setInventory('i', prizePlace);
 
-        String nextDrawTime = manager.nextDrawTime_String();
+        String nextDrawTime =
+                manager.nextDrawTime_String();
 
-        MerchantWindow window = MerchantWindow.builder()
-                .setTitle(
-                        messages.get(
-                                "history-title",
-                                "time",
-                                nextDrawTime
+        MerchantWindow window =
+                MerchantWindow.builder()
+                        .setTitle(
+                                messages.get(
+                                        "history-title",
+                                        "time",
+                                        nextDrawTime
+                                )
                         )
-                )
-                .setUpperGui(gui)
-                .setViewer(player)
-                .build();
+                        .setUpperGui(gui)
+                        .setViewer(player)
+                        .build();
 
-        List<MerchantWindow.Trade> tradeList = new ArrayList<>();
+        List<MerchantWindow.Trade> tradeList =
+                new ArrayList<>();
 
         long[] allKeys = manager.getAllKeys();
-        boolean[] betAvailable = new boolean[allKeys.length];
+
+        boolean[] betAvailable =
+                new boolean[allKeys.length];
 
         for (int keyIndex = allKeys.length - 1;
              keyIndex >= 0;
              keyIndex--) {
 
             long timeKey = allKeys[keyIndex];
-            List<int[]> bets = manager.getPlayerBets(timeKey, player);
 
-            boolean isNextDraw = timeKey == manager.nextDrawTime_Key();
-            boolean hasBets = !bets.isEmpty();
+            List<int[]> bets =
+                    manager.getPlayerBets(
+                            timeKey,
+                            player
+                    );
 
-            betAvailable[keyIndex] = hasBets;
+            boolean isNextDraw =
+                    timeKey == manager.nextDrawTime_Key();
 
-            Item ticket = createHistoryTicket(bets.size(), hasBets);
+            boolean hasBets =
+                    !bets.isEmpty();
+
+            betAvailable[keyIndex] =
+                    hasBets;
+
+            Item ticket =
+                    createHistoryTicket(
+                            bets.size(),
+                            hasBets
+                    );
 
             MerchantWindow.Trade.Builder tradeBuilder =
                     MerchantWindow.Trade.builder()
@@ -531,19 +677,25 @@ public final class LotteryGUI {
                 tradeBuilder.setResult(betFinished);
             }
 
-            tradeList.add(tradeBuilder.build());
+            tradeList.add(
+                    tradeBuilder.build()
+            );
         }
 
         window.setTrades(tradeList);
+
         window.setTradeSelectHandlers(
                 List.of(
                         (something, tradeIndex) -> {
                             int realIndex =
-                                    (allKeys.length - 1) - tradeIndex;
+                                    (allKeys.length - 1)
+                                            - tradeIndex;
 
-                            long timeKey = allKeys[realIndex];
+                            long timeKey =
+                                    allKeys[realIndex];
 
-                            if (timeKey == manager.nextDrawTime_Key()) {
+                            if (timeKey
+                                    == manager.nextDrawTime_Key()) {
                                 return;
                             }
 
@@ -567,7 +719,9 @@ public final class LotteryGUI {
         return Item.builder()
                 .setItemProvider(
                         new ItemBuilder(material)
-                                .setName(messages.get(messageKey))
+                                .setName(
+                                        messages.get(messageKey)
+                                )
                 )
                 .build();
     }
@@ -579,7 +733,11 @@ public final class LotteryGUI {
         return Item.builder()
                 .setItemProvider(
                         new ItemBuilder(Material.FILLED_MAP)
-                                .setAmount(hasBets ? betCount : 1)
+                                .setAmount(
+                                        hasBets
+                                                ? betCount
+                                                : 1
+                                )
                                 .setName(
                                         messages.get(
                                                 "history-ticket-count",
@@ -597,20 +755,30 @@ public final class LotteryGUI {
             Gui gui,
             boolean hasBets
     ) {
-        List<int[]> draw = manager.getDraw(timeKey);
+        List<int[]> draw =
+                manager.getDraw(timeKey);
 
         if (draw.isEmpty()) {
             return;
         }
 
-        int[] drawNumbers = draw.getFirst();
-        gui.setItem(0, createDrawResultItem(drawNumbers));
+        int[] drawNumbers =
+                draw.getFirst();
+
+        gui.setItem(
+                0,
+                createDrawResultItem(drawNumbers)
+        );
 
         if (!hasBets) {
             return;
         }
 
-        int[] bet = manager.get_last_bet(timeKey, player);
+        int[] bet =
+                manager.get_last_bet(
+                        timeKey,
+                        player
+                );
 
         if (bet == null) {
             gui.setItem(1, null);
@@ -618,9 +786,16 @@ public final class LotteryGUI {
         }
 
         boolean[] duplicates =
-                manager.findDuplicates(drawNumbers, bet);
+                manager.findDuplicates(
+                        drawNumbers,
+                        bet
+                );
 
-        int count = manager.getPlayerBets(timeKey, player).size();
+        int count =
+                manager.getPlayerBets(
+                        timeKey,
+                        player
+                ).size();
 
         gui.setItem(
                 1,
@@ -635,13 +810,19 @@ public final class LotteryGUI {
         );
     }
 
-    private Item createDrawResultItem(int[] draw) {
+    private Item createDrawResultItem(
+            int[] draw
+    ) {
         return Item.builder()
                 .setItemProvider(
-                        new ItemBuilder(Material.FILLED_MAP)
+                        new ItemBuilder(
+                                Material.FILLED_MAP
+                        )
                                 .setName(
                                         Component.text(
-                                                messages.get("draw-result")
+                                                messages.get(
+                                                        "draw-result"
+                                                )
                                         )
                                 )
                                 .setLore(
@@ -660,18 +841,26 @@ public final class LotteryGUI {
             boolean[] duplicates,
             boolean decorateDuplicates
     ) {
-        return IntStream.range(0, numbers.length)
+        return IntStream.range(
+                        0,
+                        numbers.length
+                )
                 .mapToObj(i -> {
-                    Component number = Component.text(
-                            String.valueOf(numbers[i])
-                    ).color(
-                            i < RED_NUMBER_COUNT
-                                    ? NamedTextColor.RED
-                                    : NamedTextColor.BLUE
-                    );
+                    Component number =
+                            Component.text(
+                                    String.valueOf(
+                                            numbers[i]
+                                    )
+                            ).color(
+                                    i < RED_NUMBER_COUNT
+                                            ? NamedTextColor.RED
+                                            : NamedTextColor.BLUE
+                            );
 
                     if (!decorateDuplicates) {
-                        return number.decorate(TextDecoration.BOLD);
+                        return number.decorate(
+                                TextDecoration.BOLD
+                        );
                     }
 
                     return number.decorate(
