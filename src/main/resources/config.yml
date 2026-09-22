@@ -1,0 +1,35 @@
+# LotterySeven configuration
+#
+# All user-facing text is configurable below.
+# Placeholders:
+#   {player} - player name
+#   {time}   - next draw time
+#   {count}  - number of tickets
+
+messages:
+  join: "Hello, {player}!"
+  players-only: "Players only."
+
+  main-title: "欢迎拉杆服务器彩票小站!"
+  main-history: "开奖结果"
+  main-new-bet: "买张新的"
+
+  bet-making-title: "请把新编号码放入左侧"
+  bet-invalid: "放钻石了吗?彩票格式对吗?"
+  bet-draw-time: "开奖时间: {time}"
+
+  history-title: "距离下一次开奖: {time}"
+  history-finished: "已结束"
+  history-drawn: "已开奖！"
+  history-future: "未开奖"
+  history-ticket-count: "已购彩票:{count}张"
+
+  draw-result: "开奖结果"
+  your-bet: "你的投注"
+
+  first-prize: "一等奖！概率111万分之一，请截图并联系服务器管理员"
+
+errors:
+  load-database: "Failed to load lottery database"
+  save-database: "Failed to write lottery database"
+  invalid-bet-size: "A bet must contain exactly 7 numbers"

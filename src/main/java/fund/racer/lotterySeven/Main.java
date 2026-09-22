@@ -11,30 +11,41 @@ import java.util.Objects;
 
 public class Main extends JavaPlugin implements Listener {
 
-    public LotteryGUI lotteryGUI;
-    public LotteryManager manager;
+    private LotteryManager manager;
+    private LotteryGUI lotteryGUI;
+    private LotteryMessages messages;
 
     @Override
     public void onEnable() {
+        saveDefaultConfig();
+
+        messages = new LotteryMessages(this);
+        manager = new LotteryManager(this, messages);
+        lotteryGUI = new LotteryGUI(manager, messages);
+
         Bukkit.getPluginManager().registerEvents(this, this);
 
+        Objects.requireNonNull(getCommand("lottery"))
+                .setExecutor(new LotteryCommand(lotteryGUI, messages));
+
         getLogger().info("LotterySeven enabled!");
+    }
 
-        manager = new LotteryManager();
-        lotteryGUI = new LotteryGUI(manager);
-
-        Objects.requireNonNull(this.getCommand("lottery")).setExecutor(
-                new LotteryCommand(lotteryGUI)
-        );
+    @Override
+    public void onDisable() {
+        if (manager != null) {
+            manager.save();
+        }
     }
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
-
-        event.getPlayer().sendMessage(
-                Component.text(
-                        "Hello, " + event.getPlayer().getName() + "!"
-                )
+        String message = messages.get(
+                "join",
+                "player",
+                event.getPlayer().getName()
         );
+
+        event.getPlayer().sendMessage(Component.text(message));
     }
 }

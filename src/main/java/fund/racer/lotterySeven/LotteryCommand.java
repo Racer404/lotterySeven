@@ -5,12 +5,17 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
-public class LotteryCommand implements CommandExecutor {
+public final class LotteryCommand implements CommandExecutor {
 
     private final LotteryGUI gui;
+    private final LotteryMessages messages;
 
-    public LotteryCommand(LotteryGUI gui){
+    public LotteryCommand(
+            LotteryGUI gui,
+            LotteryMessages messages
+    ) {
         this.gui = gui;
+        this.messages = messages;
     }
 
     @Override
@@ -20,14 +25,12 @@ public class LotteryCommand implements CommandExecutor {
             String label,
             String[] args
     ) {
-
         if (!(sender instanceof Player player)) {
-            sender.sendMessage("Players only.");
+            sender.sendMessage(messages.get("players-only"));
             return true;
         }
 
         gui.displayMainPage(player);
-
         return true;
     }
 }

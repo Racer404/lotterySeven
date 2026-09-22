@@ -1,50 +1,68 @@
 package fund.racer.lotterySeven;
 
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 import org.bukkit.entity.Player;
 
-import java.io.File;
-import java.nio.file.Files;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
-public class LotteryManager {
+public final class LotteryManager {
 
-    private final File file;
-    private final Gson gson = new Gson();
+    private static final String DEALER_KEY = "DEALER";
 
-    private Map<Long, Map<String, List<int[]>>> data = new HashMap<>();
+    private static final int BET_SIZE = 7;
+    private static final int RED_NUMBER_COUNT = 6;
+    private static final int RED_NUMBER_MAX = 33;
+    private static final int BLUE_NUMBER_MAX = 16;
 
-    public LotteryManager() {
-        file = new File("settledBets.json");
-        reloadFile();
+    private static final DayOfWeek[] DRAW_DAYS = {
+            DayOfWeek.TUESDAY,
+            DayOfWeek.FRIDAY,
+            DayOfWeek.SUNDAY
+    };
+
+    private static final DateTimeFormatter DRAW_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
+    private final LotteryDatabase database;
+    private final Map<Long, Map<String, List<int[]>>> data;
+    private final LotteryMessages messages;
+
+    public LotteryManager(
+            Main plugin,
+            LotteryMessages messages
+    ) {
+        this.messages = messages;
+        this.database = new LotteryDatabase(
+                plugin.getDataFolder(),
+                messages
+        );
+        this.data = database.getData();
     }
 
     public boolean[] findDuplicates(int[] draw, int[] bet) {
         boolean[] result = new boolean[bet.length];
+        boolean[] redNumbers = new boolean[RED_NUMBER_MAX + 1];
 
-        for (int i = 0; i < bet.length; i++) {
-
-            // Last number only compares with the last number
-            if (i == bet.length - 1) {
-                result[i] = bet[i] == draw[draw.length - 1];
-                continue;
-            }
-
-            // Other numbers compare with the regular draw numbers
-            for (int j = 0; j < draw.length - 1; j++) {
-                if (bet[i] == draw[j]) {
-                    result[i] = true;
-                    break;
-                }
-            }
+        for (int i = 0; i < RED_NUMBER_COUNT; i++) {
+            redNumbers[draw[i]] = true;
         }
+
+        for (int i = 0; i < RED_NUMBER_COUNT; i++) {
+            result[i] = redNumbers[bet[i]];
+        }
+
+        result[RED_NUMBER_COUNT] =
+                bet[RED_NUMBER_COUNT] == draw[RED_NUMBER_COUNT];
 
         return result;
     }
@@ -52,20 +70,16 @@ public class LotteryManager {
     public int calculatePrize(boolean[] result) {
         int redMatch = 0;
 
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < RED_NUMBER_COUNT; i++) {
             if (result[i]) {
                 redMatch++;
             }
         }
 
-        boolean blueMatch = result[6];
-
-        if (redMatch == 6 && blueMatch) {
-            return -1; // floating prize
-        }
+        boolean blueMatch = result[RED_NUMBER_COUNT];
 
         if (redMatch == 6) {
-            return -1; // floating prize
+            return -1;
         }
 
         if (redMatch == 5 && blueMatch) {
@@ -93,11 +107,7 @@ public class LotteryManager {
     public long nextDrawTime_Key() {
         LocalDateTime now = LocalDateTime.now();
 
-        LocalDateTime next = Arrays.stream(new DayOfWeek[]{
-                        DayOfWeek.TUESDAY,
-                        DayOfWeek.FRIDAY,
-                        DayOfWeek.SUNDAY
-                })
+        LocalDateTime next = Arrays.stream(DRAW_DAYS)
                 .map(day -> now
                         .with(TemporalAdjusters.nextOrSame(day))
                         .withHour(20)
@@ -108,70 +118,104 @@ public class LotteryManager {
                 .min(LocalDateTime::compareTo)
                 .orElseThrow();
 
-        return next.atZone(ZoneId.systemDefault()).toEpochSecond();
+        return next
+                .atZone(ZoneId.systemDefault())
+                .toEpochSecond();
     }
 
     public String nextDrawTime_String() {
-        long timestamp = nextDrawTime_Key();
-
         LocalDateTime time = LocalDateTime.ofInstant(
-                Instant.ofEpochSecond(timestamp),
+                Instant.ofEpochSecond(nextDrawTime_Key()),
                 ZoneId.systemDefault()
         );
 
-        return time.format(
-                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-        );
+        return time.format(DRAW_TIME_FORMATTER);
     }
 
+    /**
+     * Preserves the original single-bet API.
+     * A single call still results in exactly one database save.
+     */
     public void playerSettleBet(Player player, int[] bet) {
-        String UUID = String.valueOf(player.getUniqueId());
-        long time_key = nextDrawTime_Key();
+        playerSettleBets(player, bet, 1);
+    }
 
-        record_bet(time_key, UUID, bet);
-
-        if(getDraw(time_key).isEmpty()){
-            int[] draw_new = random_number_array();
-            record_bet(time_key, "DEALER", draw_new);
+    /**
+     * Records multiple identical tickets and saves the database once.
+     * This replaces the old loop that performed one JSON write per ticket.
+     */
+    public void playerSettleBets(
+            Player player,
+            int[] bet,
+            int count
+    ) {
+        if (count <= 0) {
+            return;
         }
+
+        validateBetSize(bet);
+
+        String uuid = String.valueOf(player.getUniqueId());
+        long timeKey = nextDrawTime_Key();
+
+        Map<String, List<int[]>> players =
+                data.computeIfAbsent(timeKey, key -> new java.util.HashMap<>());
+
+        List<int[]> bets = players.computeIfAbsent(
+                uuid,
+                key -> new ArrayList<>()
+        );
+
+        for (int i = 0; i < count; i++) {
+            bets.add(bet);
+        }
+
+        if (getDraw(timeKey).isEmpty()) {
+            players.put(DEALER_KEY, new ArrayList<>(
+                    List.of(random_number_array())
+            ));
+        }
+
+        save();
     }
 
     public int[] random_number_array() {
-        List<Integer> numbers = new ArrayList<>();
-        for (int i = 1; i <= 33; i++) {
+        List<Integer> numbers = new ArrayList<>(RED_NUMBER_MAX);
+
+        for (int i = 1; i <= RED_NUMBER_MAX; i++) {
             numbers.add(i);
         }
 
         Collections.shuffle(numbers);
 
-        int[] randomBet = new int[7];
+        int[] randomBet = new int[BET_SIZE];
 
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < RED_NUMBER_COUNT; i++) {
             randomBet[i] = numbers.get(i);
         }
 
-        randomBet[6] = (int) Math.ceil(Math.random() * 16);
+        randomBet[RED_NUMBER_COUNT] =
+                ThreadLocalRandom.current().nextInt(
+                        1,
+                        BLUE_NUMBER_MAX + 1
+                );
 
         return randomBet;
     }
 
     public List<int[]> getPlayerBets(long timeKey, Player player) {
-        String UUID = String.valueOf(player.getUniqueId());
+        return getPlayerBets(timeKey, String.valueOf(player.getUniqueId()));
+    }
+
+    private List<int[]> getPlayerBets(long timeKey, String uuid) {
         return data.getOrDefault(timeKey, Map.of())
-                .getOrDefault(UUID, List.of());
+                .getOrDefault(uuid, List.of());
     }
 
     public int[] get_last_bet(long timeKey, Player player) {
-        Map<String, List<int[]>> players = data.get(timeKey);
-        String UUID = String.valueOf(player.getUniqueId());
+        List<int[]> bets = getPlayerBets(timeKey, player);
 
-        if (players == null) {
-            return null;
-        }
-
-        List<int[]> bets = players.get(UUID);
-
-        if (bets == null || bets.isEmpty()) {
+        if (bets.isEmpty()) {
             return null;
         }
 
@@ -180,13 +224,13 @@ public class LotteryManager {
 
     public void clear_last_bet(long timeKey, Player player) {
         Map<String, List<int[]>> players = data.get(timeKey);
-        String UUID = String.valueOf(player.getUniqueId());
 
         if (players == null) {
             return;
         }
 
-        List<int[]> bets = players.get(UUID);
+        String uuid = String.valueOf(player.getUniqueId());
+        List<int[]> bets = players.get(uuid);
 
         if (bets == null || bets.isEmpty()) {
             return;
@@ -194,22 +238,20 @@ public class LotteryManager {
 
         bets.removeLast();
 
-        // Remove empty player entry
         if (bets.isEmpty()) {
-            players.remove(UUID);
+            players.remove(uuid);
         }
 
-        // Remove empty time key
         if (players.isEmpty()) {
             data.remove(timeKey);
         }
 
-        writeFile();
+        save();
     }
 
     public List<int[]> getDraw(long timeKey) {
         return data.getOrDefault(timeKey, Map.of())
-                .getOrDefault("DEALER", List.of());
+                .getOrDefault(DEALER_KEY, List.of());
     }
 
     public long[] getAllKeys() {
@@ -219,50 +261,34 @@ public class LotteryManager {
                 .toArray();
     }
 
-    public void record_bet(long timeKey, String playerKey, int[] bet) {
-        if (bet.length != 7) {
-            throw new IllegalArgumentException(
-                    "A bet must contain exactly 7 numbers"
-            );
-        }
+    public void record_bet(
+            long timeKey,
+            String playerKey,
+            int[] bet
+    ) {
+        validateBetSize(bet);
 
-        data.computeIfAbsent(timeKey, k -> new HashMap<>())
-                .computeIfAbsent(playerKey, k -> new ArrayList<>())
+        data.computeIfAbsent(
+                        timeKey,
+                        key -> new java.util.HashMap<>()
+                )
+                .computeIfAbsent(
+                        playerKey,
+                        key -> new ArrayList<>()
+                )
                 .add(bet);
 
-        writeFile();
+        save();
     }
 
-    private void reloadFile() {
-        try {
-            if (!file.exists()) {
-                return;
-            }
-
-            data = gson.fromJson(
-                    Files.readString(file.toPath()),
-                    new TypeToken<Map<Long, Map<String, List<int[]>>>>() {}.getType()
-            );
-
-        } catch (Exception e) {
-            throw new RuntimeException(
-                    "Failed to load lottery database",
-                    e
-            );
-        }
+    public void save() {
+        database.save();
     }
 
-    private void writeFile() {
-        try {
-            Files.writeString(
-                    file.toPath(),
-                    gson.toJson(data)
-            );
-
-        } catch (Exception e) {
-            throw new RuntimeException(
-                    "Failed to write lottery database",
-                    e
+    private void validateBetSize(int[] bet) {
+        if (bet.length != BET_SIZE) {
+            throw new IllegalArgumentException(
+                    messages.error("invalid-bet-size")
             );
         }
     }
