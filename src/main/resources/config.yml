@@ -1,14 +1,15 @@
-# LotterySeven configuration
-#
-# All user-facing text is configurable below.
-# Placeholders:
-#   {player} - player name
-#   {time}   - next draw time
-#   {count}  - number of tickets
-
 messages:
   join: "Hello, {player}!"
   players-only: "Players only."
+
+  command-usage: "Usage: /lottery [setentry|removeentry]"
+  no-permission: "You do not have permission to do this."
+
+  entry-not-looking-at-sign: "You must be looking at a sign."
+  entry-already-set: "This sign is already a lottery entrance."
+  entry-not-set: "This sign is not a lottery entrance."
+  entry-set: "This sign is now a lottery entrance."
+  entry-removed: "This sign is no longer a lottery entrance."
 
   main-title: "欢迎拉杆服务器彩票小站!"
   main-history: "开奖结果"

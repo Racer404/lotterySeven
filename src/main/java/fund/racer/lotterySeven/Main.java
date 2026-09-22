@@ -9,24 +9,51 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Objects;
 
-public class Main extends JavaPlugin implements Listener {
+public final class Main extends JavaPlugin implements Listener {
 
     private LotteryManager manager;
     private LotteryGUI lotteryGUI;
     private LotteryMessages messages;
+    private LotterySignManager signManager;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
 
         messages = new LotteryMessages(this);
-        manager = new LotteryManager(this, messages);
-        lotteryGUI = new LotteryGUI(manager, messages);
+        signManager = new LotterySignManager(this);
 
-        Bukkit.getPluginManager().registerEvents(this, this);
+        manager = new LotteryManager(
+                this,
+                messages
+        );
+
+        lotteryGUI = new LotteryGUI(
+                manager,
+                messages
+        );
+
+        Bukkit.getPluginManager().registerEvents(
+                this,
+                this
+        );
+
+        Bukkit.getPluginManager().registerEvents(
+                new LotterySignListener(
+                        signManager,
+                        lotteryGUI
+                ),
+                this
+        );
 
         Objects.requireNonNull(getCommand("lottery"))
-                .setExecutor(new LotteryCommand(lotteryGUI, messages));
+                .setExecutor(
+                        new LotteryCommand(
+                                lotteryGUI,
+                                signManager,
+                                messages
+                        )
+                );
 
         getLogger().info("LotterySeven enabled!");
     }
@@ -46,6 +73,8 @@ public class Main extends JavaPlugin implements Listener {
                 event.getPlayer().getName()
         );
 
-        event.getPlayer().sendMessage(Component.text(message));
+        event.getPlayer().sendMessage(
+                Component.text(message)
+        );
     }
 }

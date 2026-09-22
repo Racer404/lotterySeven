@@ -10,3 +10,8 @@ commands:
   lottery:
     description: LotterySeven commands
     usage: /lottery
+
+permissions:
+  lottery.admin:
+    description: Allows management of LotterySeven entrance signs
+    default: op
