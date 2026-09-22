@@ -12,6 +12,7 @@ import java.util.Objects;
 public class Main extends JavaPlugin implements Listener {
 
     public LotteryGUI lotteryGUI;
+    public LotteryManager manager;
 
     @Override
     public void onEnable() {
@@ -19,7 +20,8 @@ public class Main extends JavaPlugin implements Listener {
 
         getLogger().info("LotterySeven enabled!");
 
-        lotteryGUI = new LotteryGUI();
+        manager = new LotteryManager();
+        lotteryGUI = new LotteryGUI(manager);
 
         Objects.requireNonNull(this.getCommand("lottery")).setExecutor(
                 new LotteryCommand(lotteryGUI)
