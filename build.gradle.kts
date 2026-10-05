@@ -12,12 +12,15 @@ repositories {
         url = uri("https://repo.papermc.io/repository/maven-public/")
     }
 
-    maven("https://repo.xenondevs.xyz/releases")
+    maven {
+        name = "xenondevsReleases"
+        url = uri("https://repo.xenondevs.xyz/releases")
+    }
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:26.2.build.+")
-    implementation("xyz.xenondevs.invui:invui:2.3.2")
+    compileOnly("io.papermc.paper:paper-api:26.3.build.+")
+    implementation("xyz.xenondevs.invui:invui:2.5.1")
 }
 
 java {
