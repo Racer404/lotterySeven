@@ -185,11 +185,11 @@ public final class LotteryGUI {
             VirtualInventory betPlace,
             int[] placedNumbers
     ) {
-        player.playSound(
-                player,
+        player.getWorld().playSound(
+                player.getLocation(),
                 Sound.ENTITY_SHEEP_SHEAR,
-                1,
-                1
+                1.0f,
+                1.0f
         );
 
         ItemStack paper = betPlace.getItem(0);
@@ -393,11 +393,11 @@ public final class LotteryGUI {
                     new ItemStack(Material.DIAMOND, prize)
             );
 
-            player.playSound(
-                    player,
+            player.getWorld().playSound(
+                    player.getLocation(),
                     Sound.ENTITY_FIREWORK_ROCKET_LARGE_BLAST,
-                    1,
-                    1
+                    1.0f,
+                    1.0f
             );
             return;
         }
@@ -408,20 +408,20 @@ public final class LotteryGUI {
                     new ItemStack(Material.SPIDER_EYE, 1)
             );
 
-            player.playSound(
-                    player,
+            player.getWorld().playSound(
+                    player.getLocation(),
                     Sound.ENTITY_VILLAGER_NO,
-                    1,
-                    1
+                    1.0f,
+                    1.0f
             );
             return;
         }
 
-        player.playSound(
-                player,
+        player.getWorld().playSound(
+                player.getLocation(),
                 Sound.ENTITY_ENDER_DRAGON_DEATH,
-                1,
-                1
+                1.0f,
+                1.0f
         );
 
         player.sendMessage(messages.get("first-prize"));
